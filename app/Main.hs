@@ -23,10 +23,8 @@ import qualified Data.Text as T
 
 import Lib
 
-{-TODO - skinflutery: s/foo/bar-}
-  {-- Just use a shell pipeline with gtimeout 2s and sed/perl-}
-
 fifoname = ".hircules-fifo"
+logfile = ".hircules-log"
 
 main :: IO ()
 main = do
@@ -44,7 +42,7 @@ connect conf = notify $ do
   t <- getClockTime
   h <- connectTo (T.unpack $ server conf) (PortNumber (fromIntegral (port conf)))
   hSetBuffering h NoBuffering
-  return (Bot h (T.unpack $ chans conf) (commandChar conf) t)
+  return (Bot h conf t)
  where
   notify = bracket_
       (printf "Connecting to %s ... " (T.unpack $ server conf) >> hFlush stdout)
@@ -70,6 +68,7 @@ listen h = do
   let processIRC = forever $ do
         s <- init `fmap` liftIO (hGetLine h)
         liftIO (putStrLn s)
+        liftIO (appendFile logfile $ s ++ "\n")
         if ping s 
         then pong s 
         else when (isprivmsg s) $
@@ -87,9 +86,9 @@ listen h = do
           pong x = write "PONG" (':' : drop 6 x)
 
       processFIFO = forever $ do
-        chan <- asks channel
+        _conf <- asks conf
         s <- liftIO $ readFile fifoname
-        mapM_ (privmsg "" chan) $ lines s
+        mapM_ (privmsg "" $ T.unpack $ chans _conf) $ lines s
     in do 
       bot <- ask
       liftIO $ concurrently (runReaderT processIRC bot) 
@@ -100,14 +99,17 @@ listen h = do
 -- :nickname!~user@unaffiliated/nickname PRIVMSG hircules :yo
 
 eval :: String -> String -> String -> Net ()
-eval nick chan line = do
-  _commandChar <- asks comChar
-  case [_commandChar] `isPrefixOf` line of
-    True -> case lookup command commands of
-              Just (docs, f) -> f nick chan args
-              Nothing -> privmsg nick chan "Command not found."
-          where
-            command = takeWhile (/= ' ') $ drop 1 line
-            args = drop 1 $ dropWhile (/= ' ') line
-    False -> when (hasURLs line) $
-               lookupURLTitles nick chan line
+eval nickname chan line = do
+  _conf <- asks conf
+  unless (nickname == (T.unpack $ nick _conf)) $
+    case [commandChar _conf] `isPrefixOf` line of
+      True -> case lookup command commands of
+                Just (docs, f) -> f nickname chan args
+                Nothing -> privmsg nickname chan "Command not found."
+            where
+              command = takeWhile (/= ' ') $ drop 1 line
+              args = drop 1 $ dropWhile (/= ' ') line
+      False -> do
+        when (hasURLs line) $ lookupURLTitles nickname chan line
+        when (isSearchReplace line) $ handleSearchReplace logfile nickname chan line
+
