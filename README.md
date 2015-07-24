@@ -1,4 +1,5 @@
 #Hircules
+![logo](hircules.png)
 
 A simple irc bot written in haskell.
 
