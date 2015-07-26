@@ -85,14 +85,16 @@ listen h = do
           ping x = "PING :" `isPrefixOf` x
           pong x = write "PONG" (':' : drop 6 x)
 
+      {-TODO: This uses 100% CPU fool!-}
       processFIFO = forever $ do
         _conf <- asks conf
         s <- liftIO $ readFile fifoname
         mapM_ (privmsg "" $ T.unpack $ chans _conf) $ lines s
     in do 
       bot <- ask
-      liftIO $ concurrently (runReaderT processIRC bot) 
-                            (runReaderT processFIFO bot)
+      {-liftIO $ concurrently (runReaderT processIRC bot) -}
+                            {-(runReaderT processFIFO bot)-}
+      liftIO $ (runReaderT processIRC bot)
       return ()
 
 -- :nickname!~user@unaffiliated/nickname PRIVMSG #hircules :yo

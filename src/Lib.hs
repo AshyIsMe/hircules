@@ -172,6 +172,7 @@ handleSearchReplace log _nick chan s
   = let targetnick = takeWhile (/= ':') $ s =~ nickRegex :: String
         searchTerm  = (head $ ((stripTargetNick s) =~ searchReplaceRegex_SearchTerm :: [[String]])) !! 1
         replaceTerm = (head $ ((stripTargetNick s) =~ searchReplaceRegex_ReplaceTerm :: [[String]])) !! 1
+        regexp = ":" ++ targetnick ++ ".*? PRIVMSG .*?:"
       in do
         _matches <- liftIO $ grep log regexp
         let notSearchReplaceLine = not . isSearchReplace . stripPrelude
