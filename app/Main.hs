@@ -50,13 +50,13 @@ connect conf = notify $ do
 
 run :: HirculesConfig -> Net ()
 run conf = do
-  privmsg "NickServ" "" $ ("GHOST " ++ 
-                            (T.unpack $ nick conf) ++ " " ++ 
-                            (T.unpack $ password conf))
+  privmsg "NickServ" "" ("GHOST " ++ 
+                         T.unpack (nick conf) ++ " " ++ 
+                         T.unpack (password conf))
   write "NICK" (T.unpack $ nick conf)
   write "USER" (T.unpack (nick conf) ++" 0 * :hircules bot")
-  privmsg "NickServ" "" $ ("IDENTIFY " ++ 
-                          (T.unpack $ password conf) ++ " ")
+  privmsg "NickServ" "" ("IDENTIFY " ++ 
+                         T.unpack (password conf) ++ " ")
   write "JOIN" (T.unpack $ chans conf)
   asks socket >>= listen
 
@@ -64,7 +64,7 @@ listen :: Handle -> Net ()
 listen h = do
   fileexists <- liftIO $ doesFileExist fifoname
   when fileexists (liftIO $ removeFile fifoname)
-  fifo <- liftIO $ createNamedPipe fifoname accessModes
+  _ <- liftIO $ createNamedPipe fifoname accessModes
   let processIRC = forever $ do
         s <- init `fmap` liftIO (hGetLine h)
         liftIO (putStrLn s)
@@ -85,16 +85,15 @@ listen h = do
           ping x = "PING :" `isPrefixOf` x
           pong x = write "PONG" (':' : drop 6 x)
 
-      {-TODO: This uses 100% CPU fool!-}
-      processFIFO = forever $ do
+      processFIFO = do
         _conf <- asks conf
-        s <- liftIO $ readFile fifoname
+        s <- liftIO $ openFile fifoname ReadWriteMode >>= hGetContents 
         mapM_ (privmsg "" $ T.unpack $ chans _conf) $ lines s
+
     in do 
       bot <- ask
-      {-liftIO $ concurrently (runReaderT processIRC bot) -}
-                            {-(runReaderT processFIFO bot)-}
-      liftIO $ (runReaderT processIRC bot)
+      liftIO $ concurrently (runReaderT processIRC bot)
+                            (runReaderT processFIFO bot)
       return ()
 
 -- :nickname!~user@unaffiliated/nickname PRIVMSG #hircules :yo
@@ -103,7 +102,7 @@ listen h = do
 eval :: String -> String -> String -> Net ()
 eval nickname chan line = do
   _conf <- asks conf
-  unless (nickname == (T.unpack $ nick _conf)) $
+  unless (nickname == T.unpack (nick _conf)) $
     case [commandChar _conf] `isPrefixOf` line of
       True -> case lookup command commands of
                 Just (docs, f) -> f nickname chan args
