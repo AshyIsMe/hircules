@@ -1,7 +1,0 @@
-- server: "irc.freenode.org"
-  port: 6667
-  chans: "#lowtech"
-  nick: "Avrocules"
-  password: ""
-  commandChar: '!'
-
