@@ -21,6 +21,8 @@ library
                      , mtl
                      , network
                      , old-time
+                     , regex-compat
+                     , regex-pcre
                      , scalpel
                      , split
                      , text
