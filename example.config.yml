@@ -1,0 +1,7 @@
+- server: "irc.server.host"
+  port: 6667
+  chans: "#your-channel-here"
+  nick: ""
+  password: ""
+  commandChar: '!'
+
