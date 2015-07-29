@@ -1,7 +1,7 @@
 - server: "irc.freenode.org"
   port: 6667
-  chans: "#hircules"
-  nick: "hircules"
-  password: "PASSWORD GOES HERE"
+  chans: "#lowtech"
+  nick: "Avrocules"
+  password: ""
   commandChar: '!'
 
