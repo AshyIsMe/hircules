@@ -15,13 +15,13 @@ module Lib
       write
     ) where
 
+
 import           Control.Arrow
 import           Control.Exception
 import           Control.Monad (forever)
 import           Control.Monad.Reader
-import           Data.List
-import           Data.List.Split
 import           Data.Maybe
+import           Data.Monoid
 import           Data.Yaml
 import           Network
 import           System.Exit
@@ -29,9 +29,10 @@ import           System.IO
 import           System.Time
 import           Text.Printf
 import           Text.Regex.PCRE
-import qualified Text.Regex as RC
 import qualified Data.Text as T
+import qualified Data.Text.IO as T
 import qualified Text.HTML.Scalpel as Sc
+import qualified Text.Regex as RC
 
 data Bot = Bot 
   { socket :: Handle
@@ -46,7 +47,7 @@ data HirculesConfig = HirculesConfig
   , nick :: T.Text
   , password :: T.Text -- Password for the nickname on the irc network
   , chans :: T.Text
-  , commandChar :: Char
+  , commandChar :: T.Text
   } deriving Show
 
 instance FromJSON HirculesConfig where
@@ -74,73 +75,76 @@ handleUptime n c l  =  uptime >>= privmsg n c
 handleEcho          =  privmsg
 
 handleHelp n c l
-  | not (null . drop 1 $ splitOn " " l)
+  | not (null . drop 1 $ T.splitOn " " l)
   = case _c of
-    Just (message, _) -> privmsg n c $ command ++ " - " ++ message
+    Just (message, _) -> privmsg n c $ command <> " - " <> message
     Nothing           -> privmsg n c "Command not found"
   where
     _c = lookup command commands
-    command = head (splitOn " " l)
+    command = head (T.splitOn " " l)
 
 handleHelp n c l
-  | null . drop 1 $ splitOn " " l
+  | null . drop 1 $ T.splitOn " " l
   = mapM_ printhelp commands
   where
-    printhelp (command, (help, _)) = privmsg n c $ command ++ " - " ++ help
+    printhelp (command, (help, _)) = privmsg n c $ command <> " - " <> help
 
 handleJoin n c l
-  = case splitOn " " l of
+  = case T.splitOn " " l of
     [chans] -> write "JOIN" chans
     _ -> privmsg n c l
   where
     printhelp c = case lookup c commands of
-                  Just (help, _) -> privmsg n c $ c ++ " - " ++ help
+                  Just (help, _) -> privmsg n c $ c <> " - " <> help
                   Nothing -> return ()
 
-privmsg :: String -> String -> String -> Net ()
+privmsg :: T.Text -> T.Text -> T.Text -> Net ()
 privmsg _ chan s
-  | "#" `isPrefixOf` chan
-  = write "PRIVMSG" (chan ++ " :" ++ s)
+  | "#" `T.isPrefixOf` chan
+  = write "PRIVMSG" (chan <> " :" <> s)
 privmsg nick _ s
-  = write "PRIVMSG" (takeWhile (/= '!') nick ++ " :" ++ s)
+  = write "PRIVMSG" (T.takeWhile (/= '!') nick <> " :" <> s)
 
-write :: String -> String -> Net ()
-write s t = do
-  h <- asks socket
-  liftIO $ hPrintf h "%s %s\r\n" s t
-  liftIO $ printf "%s %s\r\n" s t
+write :: T.Text -> T.Text -> Net ()
+write _s _t = 
+  let s = T.unpack _s
+      t = T.unpack _t
+    in do
+      h <- asks socket
+      liftIO $ hPrintf h "%s %s\r\n" s t
+      liftIO $ printf "%s %s\r\n" s t
 
-uptime :: Net String
+uptime :: Net T.Text
 uptime = do
   now <- liftIO getClockTime
   zero <- asks starttime
   return . prettyTime $ diffClockTimes now zero
 
-prettyTime :: TimeDiff -> String
-prettyTime td =
+prettyTime :: TimeDiff -> T.Text
+prettyTime td = T.pack $
   unwords $ map (uncurry (++) . first show) $ 
   if null diffs then [(0,"s")] else diffs
     where merge (tot,acc) (sec,typ) = let (sec',tot') = divMod tot sec
                                       in (tot',(sec',typ):acc)
           metrics = [(86400,"d"),(3600,"h"),(60,"m"),(1,"s")]
           diffs = filter ((/= 0) . fst) $ reverse $ snd $
-                  foldl' merge (tdSec td,[]) metrics
+                  foldl merge (tdSec td,[]) metrics
 
-hasURLs :: String -> Bool
-hasURLs s = "http://" `isInfixOf` s || "https://" `isInfixOf` s 
+hasURLs :: T.Text -> Bool
+hasURLs s = "http://" `T.isInfixOf` s || "https://" `T.isInfixOf` s 
 
-lookupURLTitles :: String -> String -> String -> Net ()
+lookupURLTitles :: T.Text -> T.Text -> T.Text -> Net ()
 lookupURLTitles nick chan s = do
   titles <- liftIO $ mapM scrapeTitle urls
-  mapM_ (privmsg nick chan . filter (/= '\r') . unwords . lines) $ catMaybes titles
+  mapM_ (privmsg nick chan . T.filter (/= '\r') . T.unwords . T.lines) $ catMaybes titles
  where
     urls = filter isURL words
-    words = splitOn " " s
-    isURL s = "http://" `isPrefixOf` s ||
-              "https://" `isPrefixOf` s
+    words = T.splitOn " " s
+    isURL s = "http://" `T.isPrefixOf` s ||
+              "https://" `T.isPrefixOf` s
 
-scrapeTitle :: String -> IO (Maybe String)
-scrapeTitle u = Sc.scrapeURL u (Sc.text ("title" :: String))
+scrapeTitle :: T.Text -> IO (Maybe T.Text)
+scrapeTitle u = Sc.scrapeURL (T.unpack u) (Sc.text ("title" :: String))
 
 {-TODO: No doubt these regexes are broken in some (many) ways...-}
 {-TODO: Use lookbehinds for the s/// slashes: http://www.rexegg.com/regex-lookarounds.html-}
@@ -159,20 +163,20 @@ nickRegex :: String
 nickRegex = "^\\s*[a-zA-Z0-9_\\-\\\\\\[\\]\\{\\}^`|]+?:" -- "somenick:"
 
 -- Check if this is a search replace line eg:
-isSearchReplace :: String -> Bool
+isSearchReplace :: T.Text -> Bool
 isSearchReplace s = 
-  ((s =~ searchReplaceRegexSelf) :: Bool) ||
-  ((s =~ searchReplaceRegexNick) :: Bool)
+  ((T.unpack s =~ searchReplaceRegexSelf) :: Bool) ||
+  ((T.unpack s =~ searchReplaceRegexNick) :: Bool)
 
-handleSearchReplace :: FilePath -> String -> String -> String -> Net ()
+handleSearchReplace :: FilePath -> T.Text -> T.Text -> T.Text -> Net ()
 handleSearchReplace log _nick chan s
-  | (s =~ searchReplaceRegexNick) :: Bool,
+  | (T.unpack s =~ searchReplaceRegexNick) :: Bool,
     (stripTargetNick s =~ searchReplaceRegex_SearchTerm) :: Bool,
     (stripTargetNick s =~ searchReplaceRegex_ReplaceTerm) :: Bool
-  = let targetnick = takeWhile (/= ':') $ s =~ nickRegex :: String
-        searchTerm  = (head $ ((stripTargetNick s) =~ searchReplaceRegex_SearchTerm :: [[String]])) !! 1
-        replaceTerm = (head $ ((stripTargetNick s) =~ searchReplaceRegex_ReplaceTerm :: [[String]])) !! 1
-        regexp = ":" ++ targetnick ++ ".*? PRIVMSG .*?:"
+  = let targetnick = T.takeWhile (/= ':') $ T.pack ((T.unpack s =~ nickRegex) :: String)
+        searchTerm  = T.pack $ head $ (stripTargetNick s =~ searchReplaceRegex_SearchTerm :: [[String]]) !! 1
+        replaceTerm = T.pack $ head $ (stripTargetNick s =~ searchReplaceRegex_ReplaceTerm :: [[String]]) !! 1
+        regexp = ":" <> targetnick <> ".*? PRIVMSG .*?:"
       in do
         _matches <- liftIO $ grep log regexp
         let notSearchReplaceLine = not . isSearchReplace . stripPrelude
@@ -181,17 +185,18 @@ handleSearchReplace log _nick chan s
             unless (null matches) $
               let line = stripPrelude (last matches)
               in do
-                newtext <- liftIO $ regexReplace searchTerm line replaceTerm
-                privmsg "" chan $ nickOnly targetnick ++ " meant to say: " ++ newtext
-
+                result <- liftIO $ regexReplace searchTerm line replaceTerm
+                case result of
+                  Left e -> privmsg _nick "" e
+                  Right t -> privmsg "" chan $ nickOnly targetnick <> " meant to say: " <> t
 
 handleSearchReplace log _nick chan s
-  | (s =~ searchReplaceRegexSelf) :: Bool,
-    (s =~ searchReplaceRegex_SearchTerm) :: Bool,
-    (s =~ searchReplaceRegex_ReplaceTerm) :: Bool
-  = let searchTerm  = (head $ (s =~ searchReplaceRegex_SearchTerm :: [[String]])) !! 1
-        replaceTerm = (head $ (s =~ searchReplaceRegex_ReplaceTerm :: [[String]])) !! 1
-        regexp = ":" ++ _nick ++ ".*? PRIVMSG .*?:"
+  | (T.unpack s =~ searchReplaceRegexSelf) :: Bool,
+    (T.unpack s =~ searchReplaceRegex_SearchTerm) :: Bool,
+    (T.unpack s =~ searchReplaceRegex_ReplaceTerm) :: Bool
+  = let searchTerm  = T.pack $ (head (T.unpack s =~ searchReplaceRegex_SearchTerm :: [[String]])) !! 1
+        replaceTerm = T.pack $ (head (T.unpack s =~ searchReplaceRegex_ReplaceTerm :: [[String]])) !! 1
+        regexp = ":" <> _nick <> ".*? PRIVMSG .*?:.*?" <> searchTerm
       in do
         _matches <- liftIO $ grep log regexp
         let notSearchReplaceLine = not . isSearchReplace . stripPrelude
@@ -200,31 +205,41 @@ handleSearchReplace log _nick chan s
             unless (null matches) $
               let line = stripPrelude (last matches)
               in do
-                newtext <- liftIO $ regexReplace searchTerm line replaceTerm
-                liftIO $ putStrLn $ "line: " ++ line
-                liftIO $ putStrLn $ "searchTerm: " ++ searchTerm
-                liftIO $ putStrLn $ "replaceTerm: " ++ replaceTerm
-                liftIO $ putStrLn $ "newtext: " ++ newtext
-                privmsg "" chan $ nickOnly _nick ++ " meant to say: " ++ newtext
+                result <- liftIO $ regexReplace searchTerm line replaceTerm
+                case result of
+                  Left e -> privmsg _nick "" e
+                  Right t -> do
+                    liftIO $ T.putStrLn $ "line: " <> line
+                    liftIO $ T.putStrLn $ "searchTerm: " <> searchTerm
+                    liftIO $ T.putStrLn $ "replaceTerm: " <> replaceTerm
+                    liftIO $ T.putStrLn $ "newtext: " <> t
+                    privmsg "" chan $ nickOnly _nick <> " meant to say: " <> t
 
-nickOnly :: String -> String
-nickOnly = takeWhile (/= '!') . dropWhile (== ':')
+nickOnly :: T.Text -> T.Text
+nickOnly = T.takeWhile (/= '!') . T.dropWhile (== ':')
 
-stripPrelude = drop 1 . dropWhile (/= ':') . drop 1
+stripPrelude = T.drop 1 . T.dropWhile (/= ':') . T.drop 1
 
 -- "somnick: s/foo/bar/" -> " s/foo/bar/"
-stripTargetNick = drop 1 . dropWhile (/= ':')
+stripTargetNick = T.unpack . T.drop 1 . T.dropWhile (/= ':')
 
-{-TODO: This should return an Either SomeRegexError String-}
-regexReplace regex str replace = 
-  catch (return $! RC.subRegex (RC.mkRegex regex) str replace)
-        (\e -> return $ show (e :: SomeException))
+isValidRegex :: T.Text -> Bool
+isValidRegex r = undefined
+
+regexReplace :: T.Text -> T.Text -> T.Text -> IO (Either T.Text T.Text)
+regexReplace _regex _str _replace = 
+  let regex = T.unpack _regex
+      str = T.unpack _str
+      replace = T.unpack _replace
+    in catch (return $ Right $! T.pack $! RC.subRegex (RC.mkRegex regex) str replace)
+             (\e -> return $ Left $ T.pack $ show (e :: SomeException))
 
 {-TODO: Incredibly naive and probably slow as hell-}
-grep :: FilePath -> String -> IO [String]
+grep :: FilePath -> T.Text -> IO [T.Text]
 grep file regexp
   | regexp /= ""
-  = do 
-    filecontents <- readFile file
-    let _lines = lines filecontents
-      in return $ filter (\s -> s =~ regexp :: Bool) _lines
+  = case makeRegexM (T.unpack regexp) :: Maybe Regex of
+      Nothing -> return []
+      _ -> do filecontents <- readFile file
+              let _lines = lines filecontents
+                in return $ map T.pack $ filter (\s -> s =~ T.unpack regexp :: Bool) _lines

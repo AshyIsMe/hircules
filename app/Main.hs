@@ -3,6 +3,7 @@
 
 module Main where
 
+import Lib
 
 import           Control.Arrow
 import           Control.Concurrent.Async
@@ -11,17 +12,18 @@ import           Control.Monad (forever)
 import           Control.Monad.Reader
 import           Data.List
 import           Data.List.Split
+import           Data.Monoid
 import           Data.Yaml
 import           Network
 import           System.Directory
 import           System.IO
-import           System.Time
 import           System.Posix.Files
+import           System.Time
 import           Text.Printf
 import qualified Data.ByteString as BS
 import qualified Data.Text as T
+import qualified Data.Text.IO as T
 
-import Lib
 
 fifoname = ".hircules-fifo"
 logfile = ".hircules-log"
@@ -50,14 +52,14 @@ connect conf = notify $ do
 
 run :: HirculesConfig -> Net ()
 run conf = do
-  privmsg "NickServ" "" ("GHOST " ++ 
-                         T.unpack (nick conf) ++ " " ++ 
-                         T.unpack (password conf))
-  write "NICK" (T.unpack $ nick conf)
-  write "USER" (T.unpack (nick conf) ++" 0 * :hircules bot")
-  privmsg "NickServ" "" ("IDENTIFY " ++ 
-                         T.unpack (password conf) ++ " ")
-  write "JOIN" (T.unpack $ chans conf)
+  privmsg "NickServ" "" ("GHOST " <> 
+                         nick conf <> " " <> 
+                         password conf)
+  write "NICK" $ nick conf
+  write "USER" $ nick conf <> " 0 * :hircules bot"
+  privmsg "NickServ" "" ("IDENTIFY " <> 
+                         password conf <> " ")
+  write "JOIN" $ chans conf
   asks socket >>= listen
 
 listen :: Handle -> Net ()
@@ -66,29 +68,29 @@ listen h = do
   when fileexists (liftIO $ removeFile fifoname)
   _ <- liftIO $ createNamedPipe fifoname accessModes
   let processIRC = forever $ do
-        s <- init `fmap` liftIO (hGetLine h)
-        liftIO (putStrLn s)
-        liftIO (appendFile logfile $ s ++ "\n")
+        s <- T.init `fmap` liftIO (T.hGetLine h)
+        liftIO (T.putStrLn s)
+        liftIO (T.appendFile logfile $ s <> "\n")
         if ping s 
         then pong s 
         else when (isprivmsg s) $
                   let (n, c, l) = splitprivmsg s
                   in eval n c l
        where
-          clean = drop 1 . dropWhile (/= ':') . drop 1
-          isprivmsg = isPrefixOf "PRIVMSG" . drop 1 . dropWhile (/= ' ') . drop 1 
+          clean = T.drop 1 . T.dropWhile (/= ':') . T.drop 1
+          isprivmsg = T.isPrefixOf "PRIVMSG" . T.drop 1 . T.dropWhile (/= ' ') . T.drop 1 
           splitprivmsg s =
             (n, c, line)
             where
-              [n, _, c, _] = splitOn " " $ takeWhile (/= ':') $ drop 1 s
+              [n, _, c, _] = T.splitOn " " $ T.takeWhile (/= ':') $ T.drop 1 s
               line = clean s
-          ping x = "PING :" `isPrefixOf` x
-          pong x = write "PONG" (':' : drop 6 x)
+          ping x = "PING :" `T.isPrefixOf` x
+          pong x = write "PONG" (":" <> T.drop 6 x)
 
       processFIFO = do
         _conf <- asks conf
-        s <- liftIO $ openFile fifoname ReadWriteMode >>= hGetContents 
-        mapM_ (privmsg "" $ T.unpack $ chans _conf) $ lines s
+        s <- liftIO $ openFile fifoname ReadWriteMode >>= T.hGetContents
+        mapM_ (privmsg "" $ chans _conf) $ T.lines s
 
     in do 
       bot <- ask
@@ -96,21 +98,29 @@ listen h = do
                             (runReaderT processFIFO bot)
       return ()
 
+{-TODO: Fix the line splitting. Currently it incorrectly assumes no : chars are in the ident (ipv6 has : chars)-}
+{-LOG FROM CRASH-}
+{-:Avrocules!~Avrocules@2402:9400:400:2::18 JOIN #lowtech-}
+{-:noragrets!~Avrocepty@unaffiliated/aurorus PRIVMSG #lowtech :!uptime-}
+{-PRIVMSG #lowtech :1d 11h 35m 3s-}
+{-:Avrocules!~Avrocules@2402:9400:400:2::18 PRIVMSG #lowtech :13s-}
+{-hircules: app/Main.hs:83:15-72: Irrefutable pattern failed for pattern [n, _, c, _]-}
+
+
 -- :nickname!~user@unaffiliated/nickname PRIVMSG #hircules :yo
 -- :nickname!~user@unaffiliated/nickname PRIVMSG hircules :yo
 
-eval :: String -> String -> String -> Net ()
+eval :: T.Text -> T.Text -> T.Text -> Net ()
 eval nickname chan line = do
   _conf <- asks conf
-  unless (nickname == T.unpack (nick _conf)) $
-    case [commandChar _conf] `isPrefixOf` line of
+  unless (nickname == nick _conf) $
+    case commandChar _conf `T.isPrefixOf` line of
       True -> case lookup command commands of
                 Just (docs, f) -> f nickname chan args
                 Nothing -> privmsg nickname chan "Command not found."
             where
-              command = takeWhile (/= ' ') $ drop 1 line
-              args = drop 1 $ dropWhile (/= ' ') line
+              command = T.takeWhile (/= ' ') $ T.drop 1 line
+              args = T.drop 1 $ T.dropWhile (/= ' ') line
       False -> do
         when (hasURLs line) $ lookupURLTitles nickname chan line
         when (isSearchReplace line) $ handleSearchReplace logfile nickname chan line
-
