@@ -77,12 +77,12 @@ listen h = do
                   let (n, c, l) = splitprivmsg s
                   in eval n c l
        where
-          clean = T.drop 1 . T.dropWhile (/= ':') . T.drop 1
+          clean = T.drop 2 . T.dropWhile (/= ' ') . T.drop 1 . T.dropWhile (/= ' ') . T.drop 1 . T.dropWhile (/= ' ')
           isprivmsg = T.isPrefixOf "PRIVMSG" . T.drop 1 . T.dropWhile (/= ' ') . T.drop 1 
           splitprivmsg s =
             (n, c, line)
             where
-              [n, _, c, _] = T.splitOn " " $ T.takeWhile (/= ':') $ T.drop 1 s
+              [n, _, c] = take 3 $ T.splitOn " " s
               line = clean s
           ping x = "PING :" `T.isPrefixOf` x
           pong x = write "PONG" (":" <> T.drop 6 x)
@@ -97,18 +97,6 @@ listen h = do
       liftIO $ concurrently (runReaderT processIRC bot)
                             (runReaderT processFIFO bot)
       return ()
-
-{-TODO: Fix the line splitting. Currently it incorrectly assumes no : chars are in the ident (ipv6 has : chars)-}
-{-LOG FROM CRASH-}
-{-:Avrocules!~Avrocules@2402:9400:400:2::18 JOIN #lowtech-}
-{-:noragrets!~Avrocepty@unaffiliated/aurorus PRIVMSG #lowtech :!uptime-}
-{-PRIVMSG #lowtech :1d 11h 35m 3s-}
-{-:Avrocules!~Avrocules@2402:9400:400:2::18 PRIVMSG #lowtech :13s-}
-{-hircules: app/Main.hs:83:15-72: Irrefutable pattern failed for pattern [n, _, c, _]-}
-
-
--- :nickname!~user@unaffiliated/nickname PRIVMSG #hircules :yo
--- :nickname!~user@unaffiliated/nickname PRIVMSG hircules :yo
 
 eval :: T.Text -> T.Text -> T.Text -> Net ()
 eval nickname chan line = do

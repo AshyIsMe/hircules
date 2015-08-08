@@ -218,7 +218,7 @@ handleSearchReplace log _nick chan s
 nickOnly :: T.Text -> T.Text
 nickOnly = T.takeWhile (/= '!') . T.dropWhile (== ':')
 
-stripPrelude = T.drop 1 . T.dropWhile (/= ':') . T.drop 1
+stripPrelude = T.drop 1 . T.dropWhile (/= ':') . T.dropWhile (/= ' ')
 
 -- "somnick: s/foo/bar/" -> " s/foo/bar/"
 stripTargetNick = T.unpack . T.drop 1 . T.dropWhile (/= ':')
