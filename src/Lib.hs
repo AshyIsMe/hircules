@@ -176,7 +176,7 @@ handleSearchReplace log _nick chan s
   = let targetnick = T.takeWhile (/= ':') $ T.pack ((T.unpack s =~ nickRegex) :: String)
         searchTerm  = T.pack $ head $ (stripTargetNick s =~ searchReplaceRegex_SearchTerm :: [[String]]) !! 1
         replaceTerm = T.pack $ head $ (stripTargetNick s =~ searchReplaceRegex_ReplaceTerm :: [[String]]) !! 1
-        regexp = ":" <> targetnick <> ".*? PRIVMSG .*?:"
+        regexp = targetnick <> ".*? PRIVMSG .*?:"
       in do
         _matches <- liftIO $ grep log regexp
         let notSearchReplaceLine = not . isSearchReplace . stripPrelude
@@ -196,7 +196,7 @@ handleSearchReplace log _nick chan s
     (T.unpack s =~ searchReplaceRegex_ReplaceTerm) :: Bool
   = let searchTerm  = T.pack $ (head (T.unpack s =~ searchReplaceRegex_SearchTerm :: [[String]])) !! 1
         replaceTerm = T.pack $ (head (T.unpack s =~ searchReplaceRegex_ReplaceTerm :: [[String]])) !! 1
-        regexp = ":" <> _nick <> ".*? PRIVMSG .*?:.*?" <> searchTerm
+        regexp = _nick <> ".*? PRIVMSG .*?:.*?" <> searchTerm
       in do
         _matches <- liftIO $ grep log regexp
         let notSearchReplaceLine = not . isSearchReplace . stripPrelude
