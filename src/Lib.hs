@@ -15,7 +15,6 @@ module Lib
       write
     ) where
 
-
 import           Control.Arrow
 import           Control.Exception
 import           Control.Monad (forever)
@@ -174,8 +173,9 @@ handleSearchReplace log _nick chan s
     (stripTargetNick s =~ searchReplaceRegex_SearchTerm) :: Bool,
     (stripTargetNick s =~ searchReplaceRegex_ReplaceTerm) :: Bool
   = let targetnick = T.takeWhile (/= ':') $ T.pack ((T.unpack s =~ nickRegex) :: String)
-        searchTerm  = T.pack $ head $ (stripTargetNick s =~ searchReplaceRegex_SearchTerm :: [[String]]) !! 1
-        replaceTerm = T.pack $ head $ (stripTargetNick s =~ searchReplaceRegex_ReplaceTerm :: [[String]]) !! 1
+        rest = stripTargetNick s
+        searchTerm  = T.pack $ (head $ (rest =~ searchReplaceRegex_SearchTerm :: [[String]])) !! 1
+        replaceTerm = T.pack $ (head $ (rest =~ searchReplaceRegex_ReplaceTerm :: [[String]])) !! 1
         regexp = targetnick <> ".*? PRIVMSG .*?:"
       in do
         _matches <- liftIO $ grep log regexp
@@ -190,6 +190,7 @@ handleSearchReplace log _nick chan s
                   Left e -> privmsg _nick "" e
                   Right t -> privmsg "" chan $ nickOnly targetnick <> " meant to say: " <> t
 
+-- AA TODO: Refactor this out to remove duplication
 handleSearchReplace log _nick chan s
   | (T.unpack s =~ searchReplaceRegexSelf) :: Bool,
     (T.unpack s =~ searchReplaceRegex_SearchTerm) :: Bool,
@@ -221,7 +222,7 @@ nickOnly = T.takeWhile (/= '!') . T.dropWhile (== ':')
 stripPrelude = T.drop 1 . T.dropWhile (/= ':') . T.dropWhile (/= ' ')
 
 -- "somnick: s/foo/bar/" -> " s/foo/bar/"
-stripTargetNick = T.unpack . T.drop 1 . T.dropWhile (/= ':')
+stripTargetNick t = T.unpack . T.strip . T.drop 1 . T.dropWhile (/= ':') $ t
 
 isValidRegex :: T.Text -> Bool
 isValidRegex r = undefined
