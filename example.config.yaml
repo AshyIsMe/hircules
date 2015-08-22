@@ -1,4 +1,4 @@
-- server: "irc.freenode.org"
+- server: "irc.<your server here>.host"
   port: 6667
   chans: "#hircules"
   nick: "hircules"
